@@ -10,12 +10,20 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
-    "commands": [
-      {
-        "command": "quickCommit.commit",
-        "title": "Quick Commit: Commit Current File"
-      }
-    ]
+      "commands": [
+          {
+              "command": "quickCommit.commit",
+              "title": "Quick Commit: commit current file"
+          }
+      ],
+      "keybindings": [
+          {
+              "command": "quickCommit.commit",
+              "key": "ctrl+alt+c",
+              "mac": "cmd+alt+c",
+              "when": "editorTextFocus"
+          }
+      ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
