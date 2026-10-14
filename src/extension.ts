@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { getFileStatus } from './git';
+import { getFileStatus, runGit } from './git';
 
 
 // Превращаем callback-функцию execFile в Promise,
@@ -84,6 +84,36 @@ export function activate(context: vscode.ExtensionContext) {
             }
             const repoRoot = workspaceFolder.uri.fsPath;
             const relPath = vscode.workspace.asRelativePath(editor.document.uri);
+
+            if (!repoRoot) {
+                vscode.window.showErrorMessage('Quick Commit: папка не открыта в VS Code');
+                return;
+            }
+
+            const nameCheck = await runGit(['config', 'user.name'], repoRoot);
+            const emailCheck = await runGit(['config', 'user.email'], repoRoot);
+
+            if (!nameCheck.ok || !nameCheck.stdout) {
+                vscode.window.showErrorMessage(
+                    'Quick Commit: не настроен user.name. Выполните: git config --global user.name "Имя"'
+                );
+                return;
+            }
+            if (!emailCheck.ok || !emailCheck.stdout) {
+                vscode.window.showErrorMessage(
+                    'Quick Commit: не настроен user.email. Выполните: git config --global user.email "email@example.com"'
+                );
+                return;
+            }
+
+            // git rev-parse --is-inside-work-tree возвращает "true", если мы внутри рабочего дерева
+            const check = await runGit(['rev-parse', '--is-inside-work-tree'], repoRoot);
+            if (!check.ok || check.stdout !== 'true') {
+                vscode.window.showErrorMessage(
+                    'Quick Commit: файл не находится в Git-репозитории'
+                );
+                return;
+            }
 
             // 3. Получить относительный путь файла от корня
             // Это нужно, чтобы git add работал в контексте репозитория
