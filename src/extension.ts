@@ -72,21 +72,20 @@ export function activate(context: vscode.ExtensionContext) {
             // 1. Получить активный редактор
             const editor = vscode.window.activeTextEditor;
             if (!editor) {
-                vscode.window.showErrorMessage('Нет открытого файла.');
+                vscode.window.showErrorMessage('Quick Commit: нет открытого файла');
                 return;
             }
 
             // 2. Узнать корень воркспейса (папка, открытая в VS Code)
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (!workspaceFolder) {
-                vscode.window.showErrorMessage('Открой папку проекта в VS Code.');
+            const repoRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!repoRoot) {
+                vscode.window.showErrorMessage('Quick Commit: папка не открыта');
                 return;
             }
-            const repoRoot = workspaceFolder.uri.fsPath;
-            const relPath = vscode.workspace.asRelativePath(editor.document.uri);
 
-            if (!repoRoot) {
-                vscode.window.showErrorMessage('Quick Commit: папка не открыта в VS Code');
+            const isRepo = await runGit(['rev-parse', '--is-inside-work-tree'], repoRoot);
+            if (!isRepo.ok || isRepo.stdout !== 'true') {
+                vscode.window.showErrorMessage('Quick Commit: не Git-репозиторий');
                 return;
             }
 
@@ -106,31 +105,16 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            // git rev-parse --is-inside-work-tree возвращает "true", если мы внутри рабочего дерева
-            const check = await runGit(['rev-parse', '--is-inside-work-tree'], repoRoot);
-            if (!check.ok || check.stdout !== 'true') {
+            const filePath = editor.document.uri.fsPath;
+            if (!filePath.startsWith(repoRoot)) {
                 vscode.window.showErrorMessage(
-                    'Quick Commit: файл не находится в Git-репозитории'
+                    'Quick Commit: файл находится вне открытой папки'
                 );
                 return;
             }
 
-            // 3. Получить относительный путь файла от корня
-            // Это нужно, чтобы git add работал в контексте репозитория
-            const relativePath = vscode.workspace.asRelativePath(editor.document.uri);
+            const relPath = vscode.workspace.asRelativePath(editor.document.uri);
             
-            // 4. Спросить сообщение коммита у пользователя
-            const message = await vscode.window.showInputBox({
-                prompt: 'Сообщение коммита',
-                placeHolder: 'fix: something',
-                ignoreFocusOut: true // диалог не закроется при клике в другое окно
-            });
-
-            // Если пользователь нажал Esc или ввёл пусто — отмена
-            if (!message) {
-                return;
-            };
-
             const status = await getFileStatus(repoRoot, relPath);
             if (status === 'clean') {
                 vscode.window.showInformationMessage(
@@ -138,26 +122,72 @@ export function activate(context: vscode.ExtensionContext) {
                 );
                 return; // не идём дальше, коммита не будет
             }
-            
-            const confirmed = await previewAndConfirm(repoRoot, relPath);
-            if (!confirmed) {
-                vscode.window.showInformationMessage('Коммит отменён');
+
+            // 4. Спросить сообщение коммита у пользователя
+            const message = await vscode.window.showInputBox({
+                prompt: 'Сообщение коммита',
+                placeHolder: 'fix: something',
+                // validateInput вызывается на каждый ввод символа.
+                // Если вернуть строку — она станет ошибкой под полем.
+                validateInput: (value) => {
+                    if (!value.trim()) {
+                        return 'Сообщение не может быть пустым';
+                    }
+                    if (value.length > 200) {
+                        return 'Слишком длинное сообщение (макс. 200)';
+                    }
+                    return null;
+                },
+            });
+
+            // Если пользователь нажал Esc или ввёл пусто — отмена
+            if (message === undefined || !message.trim()) {
+                vscode.window.showInformationMessage('Quick Commit: отменено');
                 return;
             }
 
-            // 5. Выполнить git add и git commit
-            try {
-                await execFileAsync('git', ['add', relativePath], { cwd: repoRoot });
-                await execFileAsync(
-                    'git',
-                    ['commit', '-m', message, relativePath],
-                    { cwd: repoRoot }
+            // ─── 8. Предпросмотр diff + подтверждение ──────────────────
+            const confirmed = await previewAndConfirm(repoRoot, relPath);
+            if (!confirmed) {
+                vscode.window.showInformationMessage('Quick Commit: коммит отменён');
+                return;
+            }
+
+            const addRes = await runGit(
+                ['add', '--', relPath],
+                repoRoot
+            );
+            if (!addRes.ok) {
+                vscode.window.showErrorMessage(
+                    `Quick Commit (add): ${addRes.error}`
                 );
-                vscode.window.showInformationMessage(`Закоммичено: ${relativePath}`);
-            } catch (err: any) {
-                // err.stderr содержит вывод git
-                const errorText = err?.stderr?.toString() || err?.message || 'Неизвестная ошибка';
-                vscode.window.showErrorMessage(`Ошибка Git: ${errorText.trim()}`);
+                return;
+            }
+
+             const commitRes = await runGit(
+                ['commit', '-m', message, '--', relPath],
+                repoRoot
+            );
+            if (!commitRes.ok) {
+                vscode.window.showErrorMessage(
+                    `Quick Commit (commit): ${commitRes.error}`
+                );
+                return;
+            }
+
+            const hashRes = await runGit(
+                ['log', '-1', '--format=%h %s'],
+                repoRoot
+            );
+            if (hashRes.ok && hashRes.stdout) {
+                vscode.window.showInformationMessage(
+                    `Закоммичено: ${hashRes.stdout}`
+                );
+            } else {
+                // Fallback: если log упал — просто сообщаем об успехе.
+                vscode.window.showInformationMessage(
+                    `Закоммичено: ${relPath}`
+                );
             }
         }
     );
