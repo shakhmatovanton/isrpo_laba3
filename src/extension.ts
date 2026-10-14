@@ -12,6 +12,55 @@ const execFileAsync = promisify(execFile);
 // в панели Output (Ctrl+Shift+U), в выпадающем списке — "Quick Commit".
 let outputChannel: vscode.OutputChannel;
 
+/**
+ * Возвращает diff текущего файла в виде строки.
+ * @param repoRoot — корень Git-репозитория
+ * @param relPath  — путь файла относительно корня
+ */
+async function getFileDiff(repoRoot: string, relPath: string): Promise<string> {
+    // git diff показывает изменения в рабочей директории (не staged).
+    // --no-color — чтобы в выводе не было ANSI-кодов (они не читаются в Output).
+    // -- — разделитель, после которого идёт путь. Нужен, если путь начинается с "-".
+    const { stdout } = await execFileAsync(
+        'git',
+        ['diff', '--no-color', '--', relPath],
+        { cwd: repoRoot }
+    );
+    return stdout;
+}
+/**
+ * Показывает diff в OutputChannel и спрашивает подтверждение.
+ * @returns true, если пользователь подтвердил; false, если отменил.
+ */
+async function previewAndConfirm(
+    repoRoot: string,
+    relPath: string
+): Promise<boolean> {
+    const diff = await getFileDiff(repoRoot, relPath);
+
+    // Если diff пустой — изменений нет. Возвращаем false, дальше обработка на уровне вызывающего.
+    if (diff.trim().length === 0) {
+        return false;
+    }
+
+    // Очищаем канал от прошлого вывода и пишем новый diff.
+    outputChannel.clear();
+    outputChannel.appendLine(`=== Diff для ${relPath} ===`);
+    outputChannel.appendLine('');
+    outputChannel.appendLine(diff);
+    outputChannel.show(true); // true = не забирать фокус, чтобы модалка сразу появилась
+
+    // Модальный диалог: блокирует интерфейс, пока пользователь не выберет.
+    const answer = await vscode.window.showWarningMessage(
+        `Закоммитить изменения в ${relPath}?`,
+        { modal: true },
+        'Да',
+        'Нет'
+    );
+
+    return answer === 'Да';
+}
+
 export function activate(context: vscode.ExtensionContext) {
     // Регистрируем команду в контексте расширения.
     // Обработчик — async-функция, чтобы работать с await.
@@ -58,23 +107,6 @@ export function activate(context: vscode.ExtensionContext) {
                     `Нет изменений в файле ${relPath}`
                 );
                 return; // не идём дальше, коммита не будет
-            }
-
-            /**
-             * Возвращает diff текущего файла в виде строки.
-             * @param repoRoot — корень Git-репозитория
-             * @param relPath  — путь файла относительно корня
-             */
-            async function getFileDiff(repoRoot: string, relPath: string): Promise<string> {
-                // git diff показывает изменения в рабочей директории (не staged).
-                // --no-color — чтобы в выводе не было ANSI-кодов (они не читаются в Output).
-                // -- — разделитель, после которого идёт путь. Нужен, если путь начинается с "-".
-                const { stdout } = await execFileAsync(
-                    'git',
-                    ['diff', '--no-color', '--', relPath],
-                    { cwd: repoRoot }
-                );
-                return stdout;
             }
 
             // 5. Выполнить git add и git commit
