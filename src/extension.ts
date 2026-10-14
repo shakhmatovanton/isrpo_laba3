@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { getFileStatus } from './git';
+
 
 // Превращаем callback-функцию execFile в Promise,
 // чтобы можно было использовать await
@@ -26,11 +28,12 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
             const repoRoot = workspaceFolder.uri.fsPath;
+            const relPath = vscode.workspace.asRelativePath(editor.document.uri);
 
             // 3. Получить относительный путь файла от корня
             // Это нужно, чтобы git add работал в контексте репозитория
             const relativePath = vscode.workspace.asRelativePath(editor.document.uri);
-
+            
             // 4. Спросить сообщение коммита у пользователя
             const message = await vscode.window.showInputBox({
                 prompt: 'Сообщение коммита',
@@ -41,6 +44,14 @@ export function activate(context: vscode.ExtensionContext) {
             // Если пользователь нажал Esc или ввёл пусто — отмена
             if (!message) {
                 return;
+            };
+
+            const status = await getFileStatus(repoRoot, relPath);
+            if (status === 'clean') {
+                vscode.window.showInformationMessage(
+                    `Нет изменений в файле ${relPath}`
+                );
+                return; // не идём дальше, коммита не будет
             }
 
             // 5. Выполнить git add и git commit
