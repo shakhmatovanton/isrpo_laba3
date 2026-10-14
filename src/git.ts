@@ -6,6 +6,24 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
+export async function runGit(
+    args: string[],
+    cwd: string
+): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
+    try {
+        const { stdout } = await execFileAsync('git', args, {
+            cwd,
+            // Отключаем запрос пароля — иначе команда может зависнуть
+            env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+        });
+        return { ok: true, stdout: stdout.trim() };
+    } catch (err: any) {
+        // У execFile ошибка — это объект с stderr
+        const message = err.stderr?.trim() || err.message || 'Unknown git error';
+        return { ok: false, error: message };
+    }
+}
+
 /**
  * Проверяет, есть ли незакоммиченные изменения в указанном файле.
  * Возвращает:
