@@ -16,6 +16,10 @@
       {
         "command": "quickCommit.commit",
         "title": "Quick Commit: commit current file"
+      },
+      {
+        "command": "quickCommit.showHistory",
+        "title": "Quick Commit: Show History of Current File"
       }
     ],
     "keybindings": [
