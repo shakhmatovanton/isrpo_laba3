@@ -8,9 +8,15 @@ import { getFileStatus } from './git';
 // чтобы можно было использовать await
 const execFileAsync = promisify(execFile);
 
+// Создаём канал вывода для diff. Он будет виден пользователю 
+// в панели Output (Ctrl+Shift+U), в выпадающем списке — "Quick Commit".
+let outputChannel: vscode.OutputChannel;
+
 export function activate(context: vscode.ExtensionContext) {
     // Регистрируем команду в контексте расширения.
     // Обработчик — async-функция, чтобы работать с await.
+    outputChannel = vscode.window.createOutputChannel('Quick Commit');
+    context.subscriptions.push(outputChannel);
     const commitCurrentFile = vscode.commands.registerCommand(
         'quickCommit.commit',
         async () => {
@@ -52,6 +58,23 @@ export function activate(context: vscode.ExtensionContext) {
                     `Нет изменений в файле ${relPath}`
                 );
                 return; // не идём дальше, коммита не будет
+            }
+
+            /**
+             * Возвращает diff текущего файла в виде строки.
+             * @param repoRoot — корень Git-репозитория
+             * @param relPath  — путь файла относительно корня
+             */
+            async function getFileDiff(repoRoot: string, relPath: string): Promise<string> {
+                // git diff показывает изменения в рабочей директории (не staged).
+                // --no-color — чтобы в выводе не было ANSI-кодов (они не читаются в Output).
+                // -- — разделитель, после которого идёт путь. Нужен, если путь начинается с "-".
+                const { stdout } = await execFileAsync(
+                    'git',
+                    ['diff', '--no-color', '--', relPath],
+                    { cwd: repoRoot }
+                );
+                return stdout;
             }
 
             // 5. Выполнить git add и git commit
