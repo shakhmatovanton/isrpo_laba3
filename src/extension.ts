@@ -108,6 +108,12 @@ export function activate(context: vscode.ExtensionContext) {
                 );
                 return; // не идём дальше, коммита не будет
             }
+            
+            const confirmed = await previewAndConfirm(repoRoot, relPath);
+            if (!confirmed) {
+                vscode.window.showInformationMessage('Коммит отменён');
+                return;
+            }
 
             // 5. Выполнить git add и git commit
             try {
