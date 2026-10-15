@@ -61,6 +61,23 @@ async function previewAndConfirm(
     return answer === 'Да';
 }
 
+async function getLastCommit(repoRoot: string): Promise<{ hash: string; message: string }> {
+    // %h — короткий хэш (обычно 7 символов)
+    // %s — сообщение коммита (subject, первая строка)
+    // %x09 — табуляция между ними
+    const { stdout } = await execFileAsync(
+        'git',
+        ['log', '-1', '--format=%h%x09%s'],
+        { cwd: repoRoot }
+    );
+
+    const [hash, ...messageParts] = stdout.trim().split('\t');
+    return {
+        hash,
+        message: messageParts.join('\t') // на случай табов в сообщении
+    };
+}
+
 export function activate(context: vscode.ExtensionContext) {
     // Регистрируем команду в контексте расширения.
     // Обработчик — async-функция, чтобы работать с await.
@@ -189,11 +206,128 @@ export function activate(context: vscode.ExtensionContext) {
                     `Закоммичено: ${relPath}`
                 );
             }
+
+            try {
+                const { hash, message } = await getLastCommit(repoRoot);
+                const action = await vscode.window.showInformationMessage(
+                    `✅ Закоммичено: [${hash}] ${message}`,
+                    'Показать diff'
+                );
+
+                if (action === 'Показать diff') {
+                    const { stdout: details } = await execFileAsync(
+                        'git',
+                        ['show', hash],
+                        { cwd: repoRoot }
+                    );
+                    outputChannel.clear();
+                    outputChannel.appendLine(`=== Коммит ${hash} ===`);
+                    outputChannel.appendLine('');
+                    outputChannel.appendLine(details);
+                    outputChannel.show(true);
+                }
+            } catch (err: any) {
+                vscode.window.showInformationMessage(`Закоммичено: ${relPath}`);
+            }
         }
     );
 
     // Кладём команду в subscriptions, чтобы VS Code очистил её при выключении
     context.subscriptions.push(commitCurrentFile);
+
+    const historyDisposable = vscode.commands.registerCommand(
+    'quickCommit.showHistory',
+    async () => {
+        // 1. Проверяем, есть ли открытый файл
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showErrorMessage('Quick Commit: нет открытого файла');
+            return;
+        }
+
+        // 2. Определяем корень репозитория
+        const repoRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!repoRoot) {
+            vscode.window.showErrorMessage('Quick Commit: не найден корень репозитория');
+            return;
+        }
+
+        // 3. Получаем относительный путь файла (git log работает именно с ним)
+        const relPath = vscode.workspace.asRelativePath(editor.document.uri);
+
+        try {
+            // 4. Запускаем git log с кастомным форматом
+            //    %h — короткий хэш
+            //    %an — имя автора
+            //    %ad — дата (в формате --date=short → YYYY-MM-DD)
+            //    %s — сообщение коммита (subject)
+            //    %x09 — символ табуляции (безопасный разделитель, не встретится в именах)
+            const { stdout } = await execFileAsync(
+                'git',
+                [
+                    'log',
+                    '-5',
+                    '--date=short',
+                    '--format=%h%x09%an%x09%ad%x09%s',
+                    '--',
+                    relPath
+                ],
+                { cwd: repoRoot }
+            );
+
+            // 5. Если вывод пустой — у файла ещё нет коммитов
+            if (!stdout.trim()) {
+                vscode.window.showInformationMessage(
+                    `Quick Commit: у файла ${relPath} ещё нет коммитов`
+                );
+                return;
+            }
+
+            // 6. Парсим строки
+            const lines = stdout.trim().split('\n');
+            const items: vscode.QuickPickItem[] = lines.map(line => {
+                const [hash, author, date, ...messageParts] = line.split('\t');
+                const message = messageParts.join('\t'); // на случай, если в сообщении есть табы
+                return {
+                    label: `$(git-commit) ${hash}`,
+                    description: `${date} — ${author}`,
+                    detail: message,
+                    // сохраняем хэш в поле — пригодится при выборе
+                    hash
+                } as vscode.QuickPickItem & { hash: string };
+            });
+
+            // 7. Показываем список через QuickPick
+            const picked = await vscode.window.showQuickPick(items, {
+                title: `История файла: ${relPath}`,
+                placeHolder: 'Выбери коммит для просмотра деталей',
+                matchOnDetail: true
+            });
+
+            // 8. Если пользователь выбрал — показываем детали
+            if (picked) {
+                const hash = (picked as any).hash;
+                const { stdout: details } = await execFileAsync(
+                    'git',
+                    ['show', '--stat', hash, '--'],
+                    { cwd: repoRoot }
+                );
+                const channel = vscode.window.createOutputChannel('Quick Commit: Details');
+                channel.clear();
+                channel.appendLine(details);
+                channel.show();
+            }
+        } catch (err: any) {
+            vscode.window.showErrorMessage(
+                `Quick Commit: ошибка git log — ${err.message}`
+            );
+        }
+    }
+);
+
+context.subscriptions.push(historyDisposable);
 }
 
 export function deactivate() {}
+
+
