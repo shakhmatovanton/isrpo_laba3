@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { getFileStatus, runGit } from './git';
+import { getFileStatus, runGit, getOtherStagedFiles } from './git';
+
 
 
 // Превращаем callback-функцию execFile в Promise,
@@ -170,25 +171,26 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            const addRes = await runGit(
-                ['add', '--', relPath],
-                repoRoot
-            );
+            const otherStaged = await getOtherStagedFiles(repoRoot, relPath);
+
+            // git add -- relPath  →  стейджит ТОЛЬКО текущий файл.
+            // Флаг `--` — разделитель: всё после него считается путями, а не опциями.
+            // Это важно, если путь начинается с `-` или содержит пробелы.
+            const addRes = await runGit(['add', '--', relPath], repoRoot);
             if (!addRes.ok) {
-                vscode.window.showErrorMessage(
-                    `Quick Commit (add): ${addRes.error}`
-                );
+                vscode.window.showErrorMessage(`Quick Commit (add): ${addRes.error}`);
                 return;
             }
 
-             const commitRes = await runGit(
+            // git commit -m msg -- relPath
+            // Коммитит ТОЛЬКО этот путь, игнорируя staged-изменения других файлов.
+            // Они остаются в index и не теряются.
+            const commitRes = await runGit(
                 ['commit', '-m', message, '--', relPath],
                 repoRoot
             );
             if (!commitRes.ok) {
-                vscode.window.showErrorMessage(
-                    `Quick Commit (commit): ${commitRes.error}`
-                );
+                vscode.window.showErrorMessage(`Quick Commit (commit): ${commitRes.error}`);
                 return;
             }
 
