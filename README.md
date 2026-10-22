@@ -28,8 +28,12 @@
 - VS Code Extension API
 
 ## Структура проекта
+```text
+isrpo_laba3/
 ├── src/
-│   ├── extension.ts   # UI и регистрация команд
-│   └── git.ts         # Обёртки над Git
-├── package.json       # Манифест расширения
-└── README.md
+│   ├── extension.ts   # Точка входа: регистрация команд, обработка UI (диалоги, палитра)
+│   └── git.ts         # Утилиты для работы с Git (runGit, getFileStatus, getFileDiff)
+├── .gitignore         # Исключения для Git (node_modules, out, артефакты сборки)
+├── package.json       # Манифест расширения (команды, метаданные, зависимости)
+├── tsconfig.json      # Конфигурация компилятора TypeScript
+└── README.md          # Документация проекта (этот файл)
