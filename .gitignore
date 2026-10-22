@@ -1,4 +1,22 @@
+# Зависимости
 node_modules/
+
+# Скомпилированный JS
 out/
+dist/
+
+# VSCode
+.vscode/
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# Артефакты сборки
 *.vsix
-.vscode-test/
+
+# Логи
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db

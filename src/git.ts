@@ -146,3 +146,5 @@ export async function getCommitSummary(repoRoot: string, hash: string): Promise<
     const res = await runGit(['show', '--stat', hash, '--'], repoRoot);
     return res.ok ? res.stdout : res.error;
 }
+
+
